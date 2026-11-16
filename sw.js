@@ -1,4 +1,4 @@
-const CACHE='kurrent-practice-8ed127bc30b5';
+const CACHE='kurrent-practice-0a77523a482e';
 const ASSETS=["./","index.html","app.js","pwa.js","style.css","matcher.js","worker.js","structure.js","motion-curves.js","motion-attachments.js","motion-paths.js","motion-library.js","confirmed-motions.js","18thCtrKurTxt.ttf","manifest.webmanifest","icon-192.png","icon-512.png"];
 const urls=ASSETS.map(p=>new URL(p,self.registration.scope).href);
 self.addEventListener('install',e=>e.waitUntil((async()=>{const cache=await caches.open(CACHE);try{await cache.addAll(urls);}catch(error){await caches.delete(CACHE);throw error;}})()));
