@@ -1,5 +1,5 @@
-const CACHE='kurrent-practice-7299040bb02e';
-const ASSETS=["./","index.html","app.js","pwa.js","style.css","matcher.js","worker.js","structure.js","motion-curves.js","motion-attachments.js","motion-paths.js","motion-library.js","confirmed-motions.js","18thCtrKurTxt.ttf","manifest.webmanifest","icon-192.png","icon-512.png"];
+const CACHE='kurrent-practice-3fbd902d8255';
+const ASSETS=["./","index.html","app.js","pwa.js","style.css","matcher.js","worker.js","structure.js","motion-curves.js","motion-attachments.js","motion-paths.js","dataset-ui.js","dataset-store.js","motion-library.js","confirmed-motions.js","18thCtrKurTxt.ttf","manifest.webmanifest","icon-192.png","icon-512.png"];
 const urls=ASSETS.map(p=>new URL(p,self.registration.scope).href);
 self.addEventListener('install',e=>e.waitUntil((async()=>{const cache=await caches.open(CACHE);try{await cache.addAll(urls);}catch(error){await caches.delete(CACHE);throw error;}})()));
 self.addEventListener('activate',e=>e.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith('kurrent-practice-')&&key!==CACHE)await caches.delete(key);await self.clients.claim();})()));

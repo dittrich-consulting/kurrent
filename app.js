@@ -1,3 +1,4 @@
+import {createTrainingDataset} from './dataset-ui.js';
 import {sampleCurve} from './motion-curves.js';
 import {resolveAttachments} from './motion-attachments.js';
 import {createMotionLibrary} from './motion-library.js';
@@ -13,6 +14,7 @@ if(!Array.isArray(settings.enabled))settings.enabled=[...CHARACTERS];
 settings.enabled=settings.enabled.filter(c=>CHARACTERS.includes(c));if(!settings.enabled.length)settings.enabled=[...CHARACTERS];
 settings.rotationCorrection=settings.rotationCorrection===true;settings.skewCorrection=settings.skewCorrection===true;
 let referenceZoom=1,referenceBitmap=null;
+let trainingDataset=null,lastPracticeResult=null,lastPracticeReference=null,exerciseId=crypto.randomUUID(),exerciseCreated=new Date().toISOString(),lastInputType='unknown';
 let current='',attemptVisible=settings.visible,strokes=[],active=null,graded=false,busy=false,referencePoints=[],worker=null;
 const draw=$('drawing'),ctx=draw.getContext('2d');
 const label=c=>c==='s-round'?'s rund (s)':c==='s'?'s scharf (ſ)':c;
@@ -41,7 +43,7 @@ function redraw(){
  for(const stroke of strokes){if(stroke.length===1){ctx.beginPath();ctx.arc(...stroke[0],2,0,Math.PI*2);ctx.fill();}else{ctx.beginPath();ctx.moveTo(...stroke[0]);for(const p of stroke.slice(1))ctx.lineTo(...p);ctx.stroke();}}
  $('drawHint').hidden=graded||strokes.length>0;$('clear').disabled=busy;$('next').disabled=busy||!!active||(!graded&&!strokes.length)||!current;
 }
-function reset(){ $('score').textContent='—';
+function reset(){exerciseId=crypto.randomUUID();exerciseCreated=new Date().toISOString();lastPracticeResult=null;lastPracticeReference=null;lastInputType='unknown'; $('score').textContent='—';
 strokes=[];active=null;graded=false;attemptVisible=settings.visible;$('feedback').hidden=true;$('next').hidden=false;redraw();}
 function next(char){
  if(busy)return;const chars=enabled();reset();
@@ -50,7 +52,7 @@ function next(char){
  current=char||choose(chars,settings.mode,history);glyph();if(char)document.querySelector('.studio').scrollIntoView({block:'start'});
 }
 function point(e){const r=draw.getBoundingClientRect();return [(e.clientX-r.left)*draw.width/r.width,(e.clientY-r.top)*draw.height/r.height];}
-draw.addEventListener('pointerdown',e=>{if(!current||graded||busy||active||e.button!==0)return;e.preventDefault();draw.setPointerCapture(e.pointerId);active={id:e.pointerId,stroke:[point(e)]};strokes.push(active.stroke);redraw();});
+draw.addEventListener('pointerdown',e=>{if(!current||graded||busy||active||e.button!==0)return;e.preventDefault();draw.setPointerCapture(e.pointerId);lastInputType=['mouse','touch','pen'].includes(e.pointerType)?e.pointerType:'unknown';active={id:e.pointerId,stroke:[point(e)]};strokes.push(active.stroke);redraw();});
 draw.addEventListener('pointermove',e=>{if(!active||active.id!==e.pointerId)return;const es=e.getCoalescedEvents?.();for(const p of es?.length?es:[e])active.stroke.push(point(p));redraw();});
 function end(e){if(active?.id===e.pointerId){if(e.type==='pointerup')active.stroke.push(point(e));else if(e.type==='pointercancel')strokes.pop();active=null;redraw();}}
 for(const type of ['pointerup','pointercancel','lostpointercapture'])draw.addEventListener(type,end);
@@ -93,7 +95,7 @@ function showResult(r,drawing){
  $('structureFeedback').textContent=feature?('Structure feedback (experimental): '+feature.messages.join('; ')+'. Corners '+feature.drawingCorners+'/'+feature.referenceCorners+'; loops '+feature.drawingLoops+'/'+feature.referenceLoops+' (drawn/reference). The visual score above is unchanged.'):'Structure feedback needs a saved, confirmed motion for this letter. Import a desktop progress file containing confirmed motions to enable it.';
  const previous=prior.filter(h=>h.structure?.version===1);
  if(feature&&previous.length){const old=previous.at(-1).structure;$('structureFeedback').textContent+=' Compared with your last assessed attempt: missing corners '+(feature.missingCorners-old.missingCorners)+'; missing loops '+(feature.missingLoops-old.missingLoops)+'; reversed strokes '+(feature.reversedStrokes-old.reversedStrokes)+'.';}
- overlay(r);stats();
+ lastPracticeResult={score:r.score,error:r.error,rotation:r.rotation,skew:r.skew,widthRatio:r.widthRatio,params:r.params,structure:r.structure||null,corrections:{rotation:settings.rotationCorrection,skew:settings.skewCorrection}};trainingDataset?.captureChecked();overlay(r);stats();
 }
 function checkDrawing(){
  if(!strokes.length||busy||active)return;busy=true;for(const id of ['mode','set','visibility','lettersToggle','allLetters','rotationCorrection','skewCorrection'])$(id).disabled=true;redraw();$('next').textContent='…';
@@ -104,7 +106,7 @@ function checkDrawing(){
  try{worker=new Worker('./worker.js',{type:'module'});timer=setTimeout(()=>fail('Comparison took too long. Please try again.'),30000);
  worker.onerror=()=>fail('Comparison could not run. Reload the app and try again.');
  worker.onmessage=({data})=>{if(data.error){fail(data.error);return;}done();showResult(data.result,drawing);};const entry=motionEditor.exportData()[current];let motion=null;
- if(entry?.confirmed){const guides=entry.guides?resolveAttachments(entry.guides,entry.guideCorners||[],entry.strokeIds||[],entry.pointIds||[],entry.attachments||[]):null;
+ lastPracticeReference=entry?structuredClone(entry):null;if(entry?.confirmed){const guides=entry.guides?resolveAttachments(entry.guides,entry.guideCorners||[],entry.strokeIds||[],entry.pointIds||[],entry.attachments||[]):null;
  motion=(guides?guides.map((p,i)=>sampleCurve(p,entry.guideCorners?.[i])):entry.strokes).map(p=>p.map(([x,y])=>[(x-82.4)/2.7,(y-34.8)/2.7]));}
  worker.postMessage({reference:referencePoints,drawing,motion,corrections:{rotation:settings.rotationCorrection,skew:settings.skewCorrection},strokes:strokes.map(p=>p.map(([x,y])=>[x*192/draw.width,y*216/draw.height]))});
  }catch{fail('Comparison could not start. Reload the app and try again.');}
@@ -129,3 +131,5 @@ $('referenceToggle').onclick=()=>{if(!busy)$('visibility').click();};
 menuToggle.onclick=()=>{menu.hidden=!menu.hidden;menuToggle.setAttribute('aria-expanded',String(!menu.hidden));};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden){menu.hidden=true;menuToggle.setAttribute('aria-expanded','false');menuToggle.focus();}});
 $('notebookToggle').onclick=()=>{const notebook=$('notebook');notebook.hidden=!notebook.hidden;$('notebookToggle').textContent=notebook.hidden?'Show statistics':'Hide statistics';$('notebookToggle').setAttribute('aria-expanded',String(!notebook.hidden));if(!notebook.hidden){menu.hidden=true;menuToggle.setAttribute('aria-expanded','false');notebook.scrollIntoView({block:'start'});}};
+trainingDataset=createTrainingDataset({getSample:()=>{if(!current||!strokes.length||active||busy)return null;return {id:exerciseId,char:current,created:exerciseCreated,canvas:{width:draw.width,height:draw.height},strokes:structuredClone(strokes),visible:attemptVisible,corrections:lastPracticeResult?.corrections||{rotation:settings.rotationCorrection,skew:settings.skewCorrection},input:lastInputType,result:lastPracticeResult?structuredClone(lastPracticeResult):null,reference:graded?lastPracticeReference:motionEditor.exportData()[current]||null};},practice:c=>next(c),onOpen:()=>{menu.hidden=true;menuToggle.setAttribute('aria-expanded','false');}});
+$('datasetOpen').onclick=()=>trainingDataset.open(current);
