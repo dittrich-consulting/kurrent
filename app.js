@@ -6,11 +6,12 @@ const $=id=>document.getElementById(id),KEY='kurrent-studio-v1';
 const validAttempt=h=>h&&CHARACTERS.includes(h.char)&&['score','error','rotation','skew','widthRatio'].every(k=>Number.isFinite(h[k]))&&h.score>=0&&h.score<=10&&typeof h.visible==='boolean'&&typeof h.date==='string';
 let saved={};try{saved=JSON.parse(localStorage.getItem(KEY)||'{}');if(!saved||typeof saved!=='object')saved={};}catch{$('storageMessage').textContent='Saved progress could not be read. Export new attempts to keep a backup.';}
 let history=Array.isArray(saved.history)?saved.history.filter(validAttempt):[];
-let settings={mode:'adaptive',set:'all',visible:true,enabled:[...CHARACTERS],...saved.settings};
+let settings={rotationCorrection:false,skewCorrection:false,mode:'adaptive',set:'all',visible:true,enabled:[...CHARACTERS],...saved.settings};
 if(!['adaptive','frequency','random'].includes(settings.mode))settings.mode='adaptive';
 if(!['all','upper','lower'].includes(settings.set))settings.set='all';
 if(!Array.isArray(settings.enabled))settings.enabled=[...CHARACTERS];
 settings.enabled=settings.enabled.filter(c=>CHARACTERS.includes(c));if(!settings.enabled.length)settings.enabled=[...CHARACTERS];
+settings.rotationCorrection=settings.rotationCorrection===true;settings.skewCorrection=settings.skewCorrection===true;
 let referenceZoom=1,referenceBitmap=null;
 let current='',attemptVisible=settings.visible,strokes=[],active=null,graded=false,busy=false,referencePoints=[],worker=null;
 const draw=$('drawing'),ctx=draw.getContext('2d');
@@ -82,9 +83,9 @@ function overlay(r){
 }
 function span(ps){let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;for(const[x,y]of ps){minX=Math.min(minX,x);minY=Math.min(minY,y);maxX=Math.max(maxX,x);maxY=Math.max(maxY,y);}return Math.max(maxX-minX,maxY-minY);}
 function showResult(r,drawing){
- const prior=history.filter(h=>h.char===current&&h.visible===attemptVisible).slice(-10),wrap=$('referenceWrap');
+ const prior=history.filter(h=>h.char===current&&h.visible===attemptVisible&&(h.corrections?.rotation??true)===settings.rotationCorrection&&(h.corrections?.skew??true)===settings.skewCorrection).slice(-10),wrap=$('referenceWrap');
  const refScale=Math.min(wrap.clientWidth/440,wrap.clientHeight/380)*referenceZoom,sizeRatio=span(drawing)*draw.getBoundingClientRect().width/192/(span(referencePoints)*2.5*refScale);
- history.push({char:current,score:r.score,error:r.error,rotation:r.rotation,skew:r.skew,widthRatio:r.widthRatio,sizeRatio,structure:r.structure||null,visible:attemptVisible,date:new Date().toISOString()});persist();graded=true;redraw();
+ history.push({char:current,score:r.score,error:r.error,rotation:r.rotation,skew:r.skew,widthRatio:r.widthRatio,sizeRatio,corrections:{rotation:settings.rotationCorrection,skew:settings.skewCorrection},structure:r.structure||null,visible:attemptVisible,date:new Date().toISOString()});persist();graded=true;redraw();
  $('feedback').hidden=false;$('next').hidden=false;$('score').textContent=r.score.toFixed(1);
  $('comparison').textContent=prior.length?`${signed(r.score-mean(prior,'score'),' points')} versus your previous ${prior.length} ${attemptVisible?'visible-reference':'memory'} attempts at ${label(current)}. Rotation changed ${signed(r.rotation-mean(prior,'rotation'))}; skew changed ${signed(r.skew-mean(prior,'skew'))}; width changed ${signed((r.widthRatio-mean(prior,'widthRatio'))*100,' percentage points')}.`:'Your first '+(attemptVisible?'visible-reference':'memory')+' attempt at '+label(current)+'. A baseline for next time.';
  $('deviations').textContent=`Before alignment: rotation ${signed(r.rotation)}, skew ${signed(r.skew)}, width ${Math.round(r.widthRatio*100)}% of reference proportions, overall size ${Math.round(sizeRatio*100)}% of the displayed exemplar. Remaining shape error: ${r.error.toFixed(2)} px.`;
@@ -95,17 +96,17 @@ function showResult(r,drawing){
  overlay(r);stats();
 }
 function checkDrawing(){
- if(!strokes.length||busy||active)return;busy=true;for(const id of ['mode','set','visibility','lettersToggle','allLetters'])$(id).disabled=true;redraw();$('next').textContent='…';
+ if(!strokes.length||busy||active)return;busy=true;for(const id of ['mode','set','visibility','lettersToggle','allLetters','rotationCorrection','skewCorrection'])$(id).disabled=true;redraw();$('next').textContent='…';
  const small=document.createElement('canvas');small.width=192;small.height=216;small.getContext('2d').drawImage(draw,0,0,small.width,small.height);const drawing=extract(small);
  let timer;
- function done(){clearTimeout(timer);worker?.terminate();worker=null;busy=false;for(const id of ['mode','set','visibility','lettersToggle','allLetters'])$(id).disabled=false;$('next').textContent='next';redraw();}
+ function done(){clearTimeout(timer);worker?.terminate();worker=null;busy=false;for(const id of ['mode','set','visibility','lettersToggle','allLetters','rotationCorrection','skewCorrection'])$(id).disabled=false;$('next').textContent='next';redraw();}
  function fail(message){done();$('storageMessage').textContent=message;}
  try{worker=new Worker('./worker.js',{type:'module'});timer=setTimeout(()=>fail('Comparison took too long. Please try again.'),30000);
  worker.onerror=()=>fail('Comparison could not run. Reload the app and try again.');
  worker.onmessage=({data})=>{if(data.error){fail(data.error);return;}done();showResult(data.result,drawing);};const entry=motionEditor.exportData()[current];let motion=null;
  if(entry?.confirmed){const guides=entry.guides?resolveAttachments(entry.guides,entry.guideCorners||[],entry.strokeIds||[],entry.pointIds||[],entry.attachments||[]):null;
  motion=(guides?guides.map((p,i)=>sampleCurve(p,entry.guideCorners?.[i])):entry.strokes).map(p=>p.map(([x,y])=>[(x-82.4)/2.7,(y-34.8)/2.7]));}
- worker.postMessage({reference:referencePoints,drawing,motion,strokes:strokes.map(p=>p.map(([x,y])=>[x*192/draw.width,y*216/draw.height]))});
+ worker.postMessage({reference:referencePoints,drawing,motion,corrections:{rotation:settings.rotationCorrection,skew:settings.skewCorrection},strokes:strokes.map(p=>p.map(([x,y])=>[x*192/draw.width,y*216/draw.height]))});
  }catch{fail('Comparison could not start. Reload the app and try again.');}
 };
 $('export').onclick=()=>{const blob=new Blob([JSON.stringify({version:1,settings,history,motions:motionEditor.exportData()},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kurrent-progress-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
@@ -123,6 +124,7 @@ const motionEditor=createMotionLibrary();
 try{await document.fonts.load('270px Kurrent');if(!document.fonts.check('270px Kurrent'))throw Error();renderLetters();stats();next();}catch{$('storageMessage').textContent='The Kurrent font could not load. Reconnect, reopen the app and wait for offline setup.';$('next').disabled=true;}
 
 const menu=$('practiceMenu'),menuToggle=$('menuToggle');
+for(const key of ['rotationCorrection','skewCorrection']){$(key).checked=settings[key];$(key).onchange=()=>{settings[key]=$(key).checked;persist();};}
 $('referenceToggle').onclick=()=>{if(!busy)$('visibility').click();};
 menuToggle.onclick=()=>{menu.hidden=!menu.hidden;menuToggle.setAttribute('aria-expanded',String(!menu.hidden));};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden){menu.hidden=true;menuToggle.setAttribute('aria-expanded','false');menuToggle.focus();}});

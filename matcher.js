@@ -26,14 +26,14 @@ function field(points){
 }
 export function transform(points,p){const [angle,sx,sy,shear,tx,ty]=p,c=Math.cos(angle),s=Math.sin(angle);return points.map(([x,y])=>{x-=56;y-=56;const u=sx*x+shear*y,v=sy*y;return [56+c*u-s*v+tx,56+s*u+c*v+ty];});}
 function distance(points,f){let sum=0,tail=0;for(const[x,y]of points){const ix=Math.round(x),iy=Math.round(y);const d=ix<0||iy<0||ix>=GRID||iy>=GRID?30:f[iy*GRID+ix];sum+=d;tail+=d*d;}return .75*sum/points.length+.25*Math.sqrt(tail/points.length);}
-export function compare(reference,drawing){
+export function compare(reference,drawing,{rotation=true,skew=true}={}){
  const r=normalize(reference),d=normalize(drawing),rf=field(r.points);
  const objective=p=>{const q=transform(d.points,p);return (distance(q,rf)+distance(r.points,field(q)))/2;};
  let best=[0,1,1,0,0,0],loss=objective(best);
  // Multiple orientations reduce dependence on the first local minimum.
- for(const angle of [-.32,0,.32]){let p=[angle,1,1,0,0,0],value=objective(p);
+ for(const angle of rotation?[-.32,0,.32]:[0]){let p=[angle,1,1,0,0,0],value=objective(p);
  for(const scale of [1,.5,.25])for(let iter=0;iter<5;iter++){let improved=false;
- for(let k=0;k<6;k++)for(const dir of [-1,1]){const q=p.slice();q[k]+=dir*[.12,.13,.13,.14,3,3][k]*scale;
+ for(let k=0;k<6;k++)for(const dir of [-1,1]){if((k===0&&!rotation)||(k===3&&!skew))continue;const q=p.slice();q[k]+=dir*[.12,.13,.13,.14,3,3][k]*scale;
  if(Math.abs(q[0])>.43634||q[1]<.65||q[1]>1.5||q[2]<.65||q[2]>1.5||Math.abs(q[3])>.45||Math.abs(q[4])>9||Math.abs(q[5])>9)continue;
  const v=objective(q);if(v<value-1e-5){value=v;p=q;improved=true;}}
  if(!improved)break;}
